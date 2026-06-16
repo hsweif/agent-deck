@@ -1466,6 +1466,25 @@ func (t *GroupTree) ShallowCopyForSave() *GroupTree {
 	}
 }
 
+// ToGroupData converts the current tree into the storage-facing group shape.
+func (t *GroupTree) ToGroupData() []*GroupData {
+	if t == nil {
+		return nil
+	}
+	groups := make([]*GroupData, 0, len(t.GroupList))
+	for _, g := range t.GroupList {
+		groups = append(groups, &GroupData{
+			Name:          g.Name,
+			Path:          g.Path,
+			Expanded:      g.Expanded,
+			Order:         g.Order,
+			DefaultPath:   g.DefaultPath,
+			MaxConcurrent: g.MaxConcurrent,
+		})
+	}
+	return groups
+}
+
 // mostRecentPathForSessions returns the project path from the most recently accessed session
 // in the given list. Returns empty string if no sessions have paths.
 func mostRecentPathForSessions(sessions []*Instance) string {

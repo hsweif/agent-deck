@@ -2742,6 +2742,24 @@ func (h *Home) loadSessions() tea.Msg {
 	loadMtime, _ := h.storage.GetFileMtime()
 
 	instances, groups, err := h.storage.LoadWithGroups()
+	if err == nil {
+		if discovered, discoverErr := session.DiscoverBotmuxTmuxSessions(instances); discoverErr != nil {
+			uiLog.Debug("botmux_auto_import_failed", slog.String("error", discoverErr.Error()))
+		} else if len(discovered) > 0 {
+			instances = append(instances, discovered...)
+			groupTree := session.NewGroupTreeWithGroups(instances, groups)
+			for _, inst := range discovered {
+				groupTree.AddSession(inst)
+			}
+			if saveErr := h.storage.SaveWithGroups(instances, groupTree); saveErr != nil {
+				uiLog.Warn("botmux_auto_import_save_failed", slog.String("error", saveErr.Error()))
+			} else {
+				groups = groupTree.ToGroupData()
+				loadMtime, _ = h.storage.GetFileMtime()
+				uiLog.Info("botmux_auto_imported", slog.Int("count", len(discovered)))
+			}
+		}
+	}
 	msg := loadSessionsMsg{instances: instances, groups: groups, err: err, loadMtime: loadMtime}
 
 	// Initialize pool AFTER sessions are loaded

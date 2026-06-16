@@ -1,8 +1,12 @@
 package session
 
 import (
+	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
+
+	"github.com/asheshgoplani/agent-deck/internal/tmux"
 )
 
 func TestDiscoverExistingTmuxSessions(t *testing.T) {
@@ -103,6 +107,107 @@ func TestDetectToolFromName(t *testing.T) {
 				t.Errorf("detectToolFromName(%q) = %q, want %q", tt.input, result, tt.expected)
 			}
 		})
+	}
+}
+
+func TestDiscoverBotmuxSessionsFromTmuxUsesMetadata(t *testing.T) {
+	tmuxSessions := []*tmux.Session{
+		{Name: "bmx-12345678", DisplayName: "bmx-12345678", WorkDir: "/fallback"},
+		{Name: "unrelated", DisplayName: "unrelated", WorkDir: "/tmp"},
+	}
+	metadata := map[string]botmuxSessionMetadata{
+		"12345678-aaaa-bbbb-cccc-123456789abc": {
+			SessionID:  "12345678-aaaa-bbbb-cccc-123456789abc",
+			Title:      "Fix login",
+			WorkingDir: "/repo/app",
+			CLIID:      "claude-code",
+		},
+	}
+
+	discovered, err := discoverBotmuxSessionsFromTmux(tmuxSessions, nil, metadata)
+	if err != nil {
+		t.Fatalf("discoverBotmuxSessionsFromTmux returned error: %v", err)
+	}
+	if len(discovered) != 1 {
+		t.Fatalf("discovered %d sessions, want 1", len(discovered))
+	}
+	got := discovered[0]
+	if got.Title != "Fix login" {
+		t.Fatalf("Title = %q, want %q", got.Title, "Fix login")
+	}
+	if got.ProjectPath != "/repo/app" {
+		t.Fatalf("ProjectPath = %q, want /repo/app", got.ProjectPath)
+	}
+	if got.Tool != "claude" {
+		t.Fatalf("Tool = %q, want claude", got.Tool)
+	}
+	if got.GroupPath != "botmux/claude" {
+		t.Fatalf("GroupPath = %q, want botmux/claude", got.GroupPath)
+	}
+}
+
+func TestDiscoverBotmuxSessionsFromTmuxFallsBackWithoutMetadata(t *testing.T) {
+	discovered, err := discoverBotmuxSessionsFromTmux(
+		[]*tmux.Session{{Name: "bmx-deadbeef", DisplayName: "bmx-deadbeef", WorkDir: "/repo"}},
+		nil,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("discoverBotmuxSessionsFromTmux returned error: %v", err)
+	}
+	if len(discovered) != 1 {
+		t.Fatalf("discovered %d sessions, want 1", len(discovered))
+	}
+	if discovered[0].Title != "bmx-deadbeef" {
+		t.Fatalf("Title = %q, want bmx-deadbeef", discovered[0].Title)
+	}
+	if discovered[0].GroupPath != "botmux" {
+		t.Fatalf("GroupPath = %q, want botmux", discovered[0].GroupPath)
+	}
+}
+
+func TestDiscoverBotmuxSessionsFromTmuxSkipsExisting(t *testing.T) {
+	existingTmux := tmux.NewSession("existing", "/repo")
+	existingTmux.Name = "bmx-12345678"
+	existing := []*Instance{{Title: "existing", tmuxSession: existingTmux}}
+
+	discovered, err := discoverBotmuxSessionsFromTmux(
+		[]*tmux.Session{{Name: "bmx-12345678", DisplayName: "bmx-12345678", WorkDir: "/repo"}},
+		existing,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("discoverBotmuxSessionsFromTmux returned error: %v", err)
+	}
+	if len(discovered) != 0 {
+		t.Fatalf("discovered %d sessions, want 0", len(discovered))
+	}
+}
+
+func TestLoadBotmuxSessionMetadataUsesSessionDataDir(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("SESSION_DATA_DIR", dir)
+	raw := `{
+		"abcdef12-0000-4000-8000-000000000000": {
+			"title": "Review MR",
+			"workingDir": "/repo/review",
+			"cliId": "codex"
+		}
+	}`
+	if err := os.WriteFile(filepath.Join(dir, "sessions-lark-app.json"), []byte(raw), 0600); err != nil {
+		t.Fatalf("write botmux sessions file: %v", err)
+	}
+
+	metadata := loadBotmuxSessionMetadata()
+	got, ok := metadata["abcdef12-0000-4000-8000-000000000000"]
+	if !ok {
+		t.Fatalf("metadata missing botmux session")
+	}
+	if got.SessionID != "abcdef12-0000-4000-8000-000000000000" {
+		t.Fatalf("SessionID = %q, want map key", got.SessionID)
+	}
+	if got.Title != "Review MR" || got.WorkingDir != "/repo/review" || got.CLIID != "codex" {
+		t.Fatalf("metadata = %+v, want title/workingDir/cliId from file", got)
 	}
 }
 
