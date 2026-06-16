@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/asheshgoplani/agent-deck/internal/git"
 	"github.com/asheshgoplani/agent-deck/internal/tmux"
 )
 
@@ -161,7 +162,6 @@ func botmuxImportFields(sess *tmux.Session, metadata map[string]botmuxSessionMet
 	title = sess.DisplayName
 	projectPath = sess.WorkDir
 	tool = detectToolFromName(title)
-	groupPath = "botmux"
 	if meta, ok := findBotmuxMetadataForTmuxName(sess.Name, metadata); ok {
 		if strings.TrimSpace(meta.Title) != "" {
 			title = strings.TrimSpace(meta.Title)
@@ -171,7 +171,6 @@ func botmuxImportFields(sess *tmux.Session, metadata map[string]botmuxSessionMet
 		}
 		if cliID := normalizeBotmuxCLIID(meta.CLIID); cliID != "" {
 			tool = cliID
-			groupPath = "botmux/" + cliID
 		}
 	}
 	if projectPath == "" {
@@ -180,7 +179,20 @@ func botmuxImportFields(sess *tmux.Session, metadata map[string]botmuxSessionMet
 	if tool == "shell" {
 		tool = detectToolFromName(sess.Name)
 	}
+	groupPath = botmuxGroupPath(projectPath)
 	return title, projectPath, tool, groupPath
+}
+
+func botmuxGroupPath(projectPath string) string {
+	repoRoot, err := git.GetRepoRoot(projectPath)
+	if err != nil {
+		return "botmux"
+	}
+	repoName := filepath.Base(repoRoot)
+	if repoName == "." || repoName == string(filepath.Separator) || repoName == "" {
+		return "botmux"
+	}
+	return repoName
 }
 
 func findBotmuxMetadataForTmuxName(tmuxName string, metadata map[string]botmuxSessionMetadata) (botmuxSessionMetadata, bool) {

@@ -111,6 +111,14 @@ func TestDetectToolFromName(t *testing.T) {
 }
 
 func TestDiscoverBotmuxSessionsFromTmuxUsesMetadata(t *testing.T) {
+	repoDir := t.TempDir()
+	if err := exec.Command("git", "-C", repoDir, "init").Run(); err != nil {
+		t.Skipf("git init unavailable: %v", err)
+	}
+	workDir := filepath.Join(repoDir, "subdir")
+	if err := os.Mkdir(workDir, 0700); err != nil {
+		t.Fatalf("mkdir workDir: %v", err)
+	}
 	tmuxSessions := []*tmux.Session{
 		{Name: "bmx-12345678", DisplayName: "bmx-12345678", WorkDir: "/fallback"},
 		{Name: "unrelated", DisplayName: "unrelated", WorkDir: "/tmp"},
@@ -119,7 +127,7 @@ func TestDiscoverBotmuxSessionsFromTmuxUsesMetadata(t *testing.T) {
 		"12345678-aaaa-bbbb-cccc-123456789abc": {
 			SessionID:  "12345678-aaaa-bbbb-cccc-123456789abc",
 			Title:      "Fix login",
-			WorkingDir: "/repo/app",
+			WorkingDir: workDir,
 			CLIID:      "claude-code",
 		},
 	}
@@ -135,14 +143,14 @@ func TestDiscoverBotmuxSessionsFromTmuxUsesMetadata(t *testing.T) {
 	if got.Title != "Fix login" {
 		t.Fatalf("Title = %q, want %q", got.Title, "Fix login")
 	}
-	if got.ProjectPath != "/repo/app" {
-		t.Fatalf("ProjectPath = %q, want /repo/app", got.ProjectPath)
+	if got.ProjectPath != workDir {
+		t.Fatalf("ProjectPath = %q, want %q", got.ProjectPath, workDir)
 	}
 	if got.Tool != "claude" {
 		t.Fatalf("Tool = %q, want claude", got.Tool)
 	}
-	if got.GroupPath != "botmux/claude" {
-		t.Fatalf("GroupPath = %q, want botmux/claude", got.GroupPath)
+	if got.GroupPath != filepath.Base(repoDir) {
+		t.Fatalf("GroupPath = %q, want %q", got.GroupPath, filepath.Base(repoDir))
 	}
 }
 
@@ -163,6 +171,31 @@ func TestDiscoverBotmuxSessionsFromTmuxFallsBackWithoutMetadata(t *testing.T) {
 	}
 	if discovered[0].GroupPath != "botmux" {
 		t.Fatalf("GroupPath = %q, want botmux", discovered[0].GroupPath)
+	}
+}
+
+func TestBotmuxGroupPathUsesRepoName(t *testing.T) {
+	repoDir := filepath.Join(t.TempDir(), "repo-a")
+	if err := os.Mkdir(repoDir, 0700); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+	if err := exec.Command("git", "-C", repoDir, "init").Run(); err != nil {
+		t.Skipf("git init unavailable: %v", err)
+	}
+	workDir := filepath.Join(repoDir, "nested")
+	if err := os.Mkdir(workDir, 0700); err != nil {
+		t.Fatalf("mkdir nested: %v", err)
+	}
+
+	if got := botmuxGroupPath(workDir); got != "repo-a" {
+		t.Fatalf("botmuxGroupPath(%q) = %q, want repo-a", workDir, got)
+	}
+}
+
+func TestBotmuxGroupPathFallsBackToBotmuxOutsideGit(t *testing.T) {
+	dir := t.TempDir()
+	if got := botmuxGroupPath(dir); got != "botmux" {
+		t.Fatalf("botmuxGroupPath(%q) = %q, want botmux", dir, got)
 	}
 }
 
